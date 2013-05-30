@@ -90,12 +90,12 @@ def hess(s, w, X_, Y_, Z_, size_u, alpha, u0):
     n_task = Y_.shape[1]
     size_v = X1.shape[1] / size_u
     W = w.reshape((-1, n_task), order='F')
-    XY = X_.matmat(Y_)  # TODO: move out
+    XY = X_.rmatvec(Y_)
     u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
     s1, s2, s3 = s[:size_u], s[size_u:size_u + size_v], s[size_u + size_v:]
-    W2 = X_.matmat(matmat2(X_, u, v, n_task))
-    W2 = W2.reshape((-1, s2.shape[0]), order='F')
-    XY = XY.reshape((-1, s2.shape[0]), order='F')
+    W2 = X_.rmatvec(matmat2(X_, u, v, n_task))
+    W2 = W2.reshape((-1, s1.shape[0]), order='F')
+    XY = XY.reshape((-1, s1.shape[0]), order='F')
 
     tmp = matmat2(X_, s1, v, n_task)
     As1 = rmatmat1(X_, v, tmp, n_task)
@@ -108,10 +108,10 @@ def hess(s, w, X_, Y_, Z_, size_u, alpha, u0):
     Cts1 = Z_.rmatvec(tmp.T)
 
     tmp = matmat2(X_, u, s2, n_task)
-    Bs2 = rmatmat1(X_, v, tmp, n_task) + W2.dot(s2) - XY.dot(s2)
+    Bs2 = rmatmat1(X_, v, tmp, n_task) + W2.T.dot(s2) - XY.T.dot(s2)
 
     tmp = matmat2(X_, s1, v, n_task)
-    Bts1 = rmatmat2(X_, u, tmp, n_task) + W2.T.dot(s1) - XY.T.dot(s1)
+    Bts1 = rmatmat2(X_, u, tmp, n_task) + W2.dot(s1) - XY.dot(s1)
 
     tmp = Z_.matvec(s3)
     Es3 = rmatmat2(X_, u, tmp, n_task)
@@ -119,7 +119,7 @@ def hess(s, w, X_, Y_, Z_, size_u, alpha, u0):
     tmp = matmat2(X_, u, s2, n_task)
     Ets2 = Z_.rmatvec(tmp)
 
-    Fs3 = - Z_.rmatvec(Z_.matvec(s3))
+    Fs3 = Z_.rmatvec(Z_.matvec(s3))
 
     line0 = As1 + Bs2 + Cs3
     line1 = Bts1 + Ds2 + Es3
@@ -129,9 +129,10 @@ def hess(s, w, X_, Y_, Z_, size_u, alpha, u0):
 
 if __name__ == '__main__':
     n_target = 1
-    X1 = np.random.randn(10, 10)
-    Z1 = np.random.randn(10, 10)
-    Y1 = np.random.randn(10, n_target)
+    np.random.seed(0)
+    X1 = np.random.randn(12, 10)
+    Z1 = np.random.randn(12, 10)
+    Y1 = np.random.randn(12, n_target)
     size_u = 5
     size_v = 2
     canonical = np.random.randn(size_u)
@@ -143,6 +144,7 @@ if __name__ == '__main__':
     import pylab as pl
     H = nd.Hessian(lambda x: f(x, X1, Y1, Z1, size_u, 0., canonical))
     pl.matshow(H(x0)[:size_u+size_v, :size_u+size_v])
+    pl.title('numdifftools')
     pl.colorbar()
 
     E = np.eye(size_u + size_v + Z1.shape[1])
