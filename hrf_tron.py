@@ -25,7 +25,6 @@ def khatri_rao(A, B):
     return (A.T[:, :, np.newaxis] * B.T[:, np.newaxis, :]
     ).reshape(num_targets, len(B) * len(A)).T
 
-
 def matmat2(X, a, b, n_task):
     """
     X (b * a)
@@ -36,7 +35,7 @@ def matmat2(X, a, b, n_task):
 
 def rmatmat1(X, a, b, n_task):
     """
-    (a^T kron I) X^T b
+    (I kron a^T) X^T b
     """
     b1 = X.rmatvec(b[:X.shape[0]]).T
     B = b1.reshape((n_task, -1, a.shape[0]), order='F')
@@ -46,15 +45,17 @@ def rmatmat1(X, a, b, n_task):
 
 def rmatmat2(X, a, b, n_task):
     """
-    (I kron a^T) X^T b
+    (a^T kron I) X^T b
     """
     b1 = X.rmatvec(b).T
     B = b1.reshape((n_task, -1, a.shape[0]), order='C')
     tmp = np.einsum("ijk, ik -> ij", B, a.T).T
     return tmp
 
+
 def obj(X_, Y_, Z_, a, b, c, alpha, u0):
     uv0 = khatri_rao(b, a)
+    # u0 = u0.reshape((a.size, -1), order='C')
     cost = .5 * linalg.norm(Y_ - X_.matvec(uv0) - Z_.matmat(c), 'fro') ** 2
     reg = .5 * alpha * linalg.norm(a - u0, 'fro') ** 2
     return cost + reg
@@ -68,18 +69,21 @@ def f(w, X_, Y_, Z_, size_u, alpha, u0):
     u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
     return obj(X_, Y_, Z_, u, v, c, alpha, u0)
 
-def fprime(x0, X_, Y_, Z_, size_u, alpha, u0):
+
+def fprime(w, X_, Y_, Z_, size_u, alpha, u0):
     X_ = splinalg.aslinearoperator(X_)
     Z_ = splinalg.aslinearoperator(Z_)
-    n_task = Y_.shape[1]
     size_v = X_.shape[1] / size_u
-    W = x0.reshape((-1, n_task), order='F')
-    u, v, w = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
-    tmp = Y_ - matmat2(X_, u, v, n_task) - Z_.matmat(w)
+    # u0 = u0.reshape((size_u, -1), order='C')
+    n_task = Y_.shape[1]
+    W = w.reshape((-1, n_task), order='F')
+    u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
+    tmp = Y_ - matmat2(X_, u, v, n_task) - Z_.matmat(c)
     grad = np.empty((size_u + size_v + Z_.shape[1], n_task))  # TODO: do outside
     grad[:size_u] = rmatmat1(X_, v, tmp, n_task) - alpha * (u - u0)
     grad[size_u:size_u + size_v] = rmatmat2(X_, u, tmp, n_task)
     grad[size_u + size_v:] = Z_.rmatvec(tmp)
+    # print('Gradient ', linalg.norm(grad.ravel(), np.inf))
     return - grad.reshape((-1,), order='F')
 
 
@@ -165,7 +169,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
     size_v = X.shape[1] / size_u
-    #u0 = u0.reshape((-1, n_task))
+    u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
     w0 = np.zeros((size_u + size_v + Z_.shape[1], n_task))
     w0[:size_u] = u0
@@ -178,39 +182,39 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
     def callback(x0):
         x0 = np.asarray(x0)
         print(optimize.check_grad(f, fprime, x0, X, Y, Z_, size_u, 0., u0))
-        # import numdifftools as nd
-        # import pylab as pl
-        # H = nd.Hessian(lambda x: f(x, X, Y, Z_, size_u, 0., u0))
-        # pl.matshow(H(x0))
-        # pl.title('numdifftools')
-        # pl.colorbar()
-        #
-        # n_target = Y.shape[1]
-        # E = np.eye(n_target * (size_u + size_v + Z_.shape[1]))
-        # out = []
-        # for i in range(E.shape[0]):
-        #     ei = E[i]
-        #     ei = ei.reshape((-1, 1))
-        #     tmp = hess(ei, x0, X, Y, Z_, size_u, 0., u0)
-        #     out.append(tmp.ravel())
-        # true_H = np.array(out)
-        # pl.matshow(true_H)
-        # pl.colorbar()
-        # pl.show()
+        import numdifftools as nd
+        import pylab as pl
+        H = nd.Hessian(lambda x: f(x, X, Y, Z_, size_u, 0., u0))
+        pl.matshow(H(x0))
+        pl.title('numdifftools')
+        pl.colorbar()
+
+        n_target = Y.shape[1]
+        E = np.eye(n_target * (size_u + size_v + Z_.shape[1]))
+        out = []
+        for i in range(E.shape[0]):
+            ei = E[i]
+            ei = ei.reshape((-1, 1))
+            tmp = hess(ei, x0, X, Y, Z_, size_u, 0., u0)
+            out.append(tmp.ravel())
+        true_H = np.array(out)
+        pl.matshow(true_H)
+        pl.colorbar()
+        pl.show()
 
     def grad_hess(x0, X_, Y_, Z_, size_u, alpha, u0):
         grad = fprime(x0, X_, Y_, Z_, size_u, alpha, u0)
         hessp = lambda x: hess(x, x0, X_, Y_, Z_, size_u, alpha, u0)
         return grad, hessp
 
-    import pytron
-    res = pytron.minimize(f, grad_hess, w0.ravel(),
-        args=(X, Y, Z_, size_u, alpha, u0), tol=1e-3)
+#    import pytron
+#    res = pytron.minimize(f, grad_hess, w0.ravel(),
+#        args=(X, Y, Z_, size_u, alpha, u0), tol=1e-3)
 
-#    res = optimize.minimize(f, w0.ravel(), jac=fprime,
-#            args=(X, Y, Z_, size_u, alpha, u0), tol=1e-3,
-#            method='L-BFGS-B', options={'disp' : True},
-#            callback=callback)
+    res = optimize.minimize(f, w0.ravel(), jac=fprime,
+            args=(X, Y, Z_, size_u, alpha, u0), tol=1e-3,
+            method='TNC', options={'disp' : True},
+            callback=callback)
 
     W = res.x.reshape((-1, Y.shape[1]), order='F')
     U = W[:size_u]

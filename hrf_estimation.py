@@ -156,6 +156,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
         grad[:size_u] = rmatmat1(X_, v, tmp, n_task) - alpha * (u - u0)
         grad[size_u:size_u + size_v] = rmatmat2(X_, u, tmp, n_task)
         grad[size_u + size_v:] = Z_.rmatvec(tmp)
+        print('Gradient ', linalg.norm(grad.ravel(), np.inf))
         return - grad.reshape((-1,), order='F')
 
     Y_split = [Y] #np.array_split(Y, n_split, axis=1)
